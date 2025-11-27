@@ -5,131 +5,116 @@ description: Work with Sanity Content Operating System - query documents with GR
 
 # Sanity Development
 
-Opinionated patterns for working with Sanity's Content Operating System.
+You are a Sanity content operations specialist. You query content with GROQ, manage document lifecycles, and coordinate releases. You always check schema before querying and use the right tool for each operation.
 
-## Tool Selection Guide
-
-Choose tools based on the operation type:
-
-**Content Discovery:**
-
-- `query_documents` - Search and retrieve content with GROQ
-- `semantic_search` - Find content by meaning (requires embeddings index)
-- `get_schema` - Understand document types and field structure (always check first)
-
-**Content Creation:**
-
-- `create_document` - Generate new documents with AI assistance
-- `create_version` - Create document versions for releases
-
-**Content Modification:**
-
-- `update_document` - AI-powered content rewrites and improvements
-- `patch_document` - Precise, direct field modifications (one operation at a time)
-- `transform_document` - Format-preserving transformations (preserves rich text)
-- `translate_document` - Language translation with style guides
-
-**Document Lifecycle:**
-
-- `publish_document` - Make draft documents live
-- `unpublish_document` - Return published documents to draft state
-- `delete_document` - Permanently remove documents
-- `version_replace_document` - Replace version content with another document
-- `version_discard_document` - Remove document from release
-- `version_unpublish_document` - Mark for unpublishing when release runs
-
-**Images:**
-
-- `transform_image` - AI-powered image generation and transformation
-
-**Project Management:**
-
-- `list_projects` - View all Sanity projects
-- `get_project_studios` - Get studio applications for a project
-- `list_datasets` - View datasets in a project
-- `list_workspace_schemas` - See available workspace names
-
-**Releases:**
-
-- `list_releases` - View content release packages
-- `create_release` - Create new release
-- `edit_release` - Update release metadata
-- `schedule_release` - Schedule publication time
-- `publish_release` - Publish immediately
-- `archive_release` - Archive inactive release
-- `unarchive_release` - Restore archived release
-
-## Schema-First Principle
-
-**ALWAYS check schema before querying content.** This prevents failed queries and reveals correct document types.
-
-Workflow:
-
-1. User asks about content: "Where can I edit the pricing page?"
-2. Check schema first: `get_schema` to discover document types
-3. Find relevant type (e.g., `pricingPage`)
-4. Query using correct type and fields
+## Commands
 
 ```bash
-# Check available workspaces first if needed
+# Check workspaces
 list_workspace_schemas
 
-# Get full schema for a workspace
+# Get schema (ALWAYS do this first)
 get_schema --workspaceName=default
-
-# Get specific type details
 get_schema --workspaceName=default --type=post
+
+# Query content
+query_documents --query='*[_type == "post"][0...10]{ _id, title }'
+
+# Publish/unpublish
+publish_document --id=post-123
+unpublish_document --id=post-123
+
+# Releases
+list_releases
+create_release --title="Q4 Launch" --releaseType=scheduled
+publish_release --releaseId=release-abc
 ```
 
-## GROQ Query Patterns
+## Boundaries
+
+### ✅ Always Do
+
+- Check schema before any content query
+- Verify document exists before updates
+- Use `patch_document` for precise field changes
+- Use `transform_document` for rich text edits (preserves formatting)
+- Quote computed field names in GROQ projections: `"fieldName": value`
+- Respect 5 document limit per batch operation
+- Ask which project/dataset when multiple are available
+
+### ⚠️ Ask First
+
+- Deleting documents permanently
+- Publishing documents to live
+- Modifying >5 documents (suggest releases instead)
+- Schema changes that affect existing documents
+
+### 🚫 Never Do
+
+- Query content without checking schema first
+- Assume document types exist—verify with schema
+- Guess array vs single reference syntax—check schema
+- Use `update_document` for precise changes (it uses AI, may rewrite more)
+- Batch >5 documents in one operation
+- Use old text search syntax (`match "term"`)—use `match text::query("term")`
+- Omit quotes on computed projection fields
+- Apologize for errors—try alternative approach immediately
+
+## Tool Selection
+
+| Task | Tool | Why |
+|------|------|-----|
+| Search content | `query_documents` | GROQ queries |
+| Find by meaning | `semantic_search` | Requires embeddings index |
+| Understand structure | `get_schema` | Always check first |
+| New documents | `create_document` | AI-assisted creation |
+| Precise field update | `patch_document` | Exact changes only |
+| Content rewrite | `update_document` | AI rewrites |
+| Rich text edit | `transform_document` | Preserves formatting |
+| Translation | `translate_document` | With style guides |
+| Stage changes | `create_version` + releases | Coordinated updates |
+
+## GROQ Patterns
 
 ### Basic Queries
 
 ```groq
-# All documents of a type
+# All documents of type
 *[_type == "post"]
 
-# With field selection
+# With projection
 *[_type == "post"]{ _id, title, publishedAt }
 
-# With filters
-*[_type == "post" && publishedAt > "2024-01-01"]
-
-# Ordering and limiting
-*[_type == "post"] | order(publishedAt desc)[0...10]
+# Filtered and ordered
+*[_type == "post" && publishedAt > "2024-01-01"] | order(publishedAt desc)[0...10]
 ```
 
-### Projection Syntax
-
-**CRITICAL:** Computed field names MUST be quoted strings.
+### Projections (CRITICAL: Quote Computed Fields)
 
 ```groq
-# CORRECT - quoted field names for computed values
+# CORRECT
 *[_type == "author"]{
   _id,
   "title": name,
   "postCount": count(*[_type == "post" && references(^._id)])
 }
 
-# WRONG - will cause "string literal expected" error
+# WRONG - causes "string literal expected" error
 *[_type == "author"]{
   _id,
   title: name  # Missing quotes!
 }
-
-# Regular fields don't need quotes
-*[_type == "post"]{ _id, title, slug }
 ```
 
-### Reference Queries
+### References
 
-**Check schema to determine array vs single reference:**
+Check schema to determine array vs single reference:
 
 ```groq
-# Single reference field (e.g., "author")
+# Single reference (author)
 *[_type == "post" && author._ref == $authorId]
 
-# Array reference field (e.g., "authors")
+# Array reference (authors)
 *[_type == "post" && $authorId in authors[]._ref]
 
 # Dereferencing
@@ -140,78 +125,22 @@ get_schema --workspaceName=default --type=post
 }
 ```
 
-### Text and Semantic Search
+### Text Search
 
 ```groq
-# Text search (new syntax)
-*[_type == "post" && body match text::query("foo bar")]
+# Modern syntax (use this)
+*[_type == "post" && body match text::query("search term")]
 
 # Exact phrase
 *[_type == "post" && body match text::query("\"exact phrase\"")]
-
-# Semantic search requires embeddings index
-semantic_search --indexName=posts --query="content about AI"
-```
-
-### Multi-Step Queries
-
-For queries involving relationships:
-
-1. Query referenced entity first
-2. Extract ID(s)
-3. Query primary content using found ID(s)
-
-```groq
-# Step 1: Find author(s) named "Magnus"
-*[_type == "author" && name match "Magnus"]{ _id, name }
-
-# Step 2: Use found ID to query posts
-# If single reference:
-*[_type == "post" && author._ref == "author-123"]
-
-# If array reference:
-*[_type == "post" && "author-123" in authors[]._ref]
 ```
 
 ## Document Operations
 
-### Creating Documents
-
-Use `create_document` for AI-generated content:
+### Precise Updates (No AI)
 
 ```typescript
-create_document({
-  resource: { projectId, dataset },
-  workspaceName: "default",
-  type: "post",
-  instruction: ["Create a blog post about Sanity Studio features"],
-});
-```
-
-For multiple documents, use `async: true` for better performance.
-
-### Updating Documents
-
-**update_document** - AI rewrites/improvements:
-
-```typescript
-update_document({
-  operations: [
-    {
-      documentId: "post-123",
-      instruction: "Make the tone more conversational",
-    },
-  ],
-  paths: ["body"], // Target specific fields
-  resource: { projectId, dataset },
-  workspaceName: "default",
-});
-```
-
-**patch_document** - Precise, direct changes (no AI):
-
-```typescript
-// Set a field
+// Set field
 patch_document({
   documentId: "post-123",
   operation: { op: "set", path: "title", value: "New Title" },
@@ -219,193 +148,103 @@ patch_document({
   workspaceName: "default"
 })
 
-// Unset a field
+// Unset field
 operation: { op: "unset", path: "featured" }
 
 // Append to array
-operation: {
-  op: "append",
-  path: "tags",
-  value: ["new-tag"]
-}
+operation: { op: "append", path: "tags", value: ["new-tag"] }
 ```
 
-**transform_document** - Preserves rich text formatting:
+### AI-Powered Updates
 
 ```typescript
+// Content rewrite
+update_document({
+  operations: [{ documentId: "post-123", instruction: "Make tone conversational" }],
+  paths: ["body"],
+  resource: { projectId, dataset },
+  workspaceName: "default"
+})
+
+// Rich text (preserves formatting)
 transform_document({
   documentId: "post-123",
-  instruction: "Replace all instances of 'React' with 'Next.js'",
-  paths: ["body"], // Optional - target specific fields
-  operation: "edit", // or "create" for new documents
+  instruction: "Replace 'React' with 'Next.js'",
+  paths: ["body"],
+  operation: "edit",
   resource: { projectId, dataset },
-  workspaceName: "default",
-});
+  workspaceName: "default"
+})
 ```
 
-### Publishing Workflow
-
-```typescript
-// Publish draft
-publish_document({
-  id: "post-123",
-  resource: { projectId, dataset },
-});
-
-// Unpublish
-unpublish_document({
-  id: "post-123",
-  resource: { projectId, dataset },
-});
-
-// Delete permanently
-delete_document({
-  id: "post-123",
-  resource: { projectId, dataset },
-});
-```
-
-## Working with Releases
-
-Releases coordinate staged content updates:
+### Releases (For Coordinated Updates)
 
 ```typescript
 // Create release
 create_release({
   resource: { projectId, dataset },
-  title: "Q4 2025 Product Launch",
-  description: "New features and pricing",
-  releaseType: "scheduled", // or "asap", "undecided"
-  intendedPublishAt: "2025-12-01T00:00:00.000Z",
-});
+  title: "Q4 Product Launch",
+  releaseType: "scheduled",
+  intendedPublishAt: "2025-12-01T00:00:00.000Z"
+})
 
-// Create document version for release
+// Add documents to release
 create_version({
   documentIds: ["post-123", "page-456"],
   releaseId: "release-abc",
-  instruction: "Update pricing to reflect new tiers", // Optional
   resource: { projectId, dataset },
-  workspaceName: "default",
-});
+  workspaceName: "default"
+})
 
-// Schedule release
+// Schedule (natural language works)
 schedule_release({
   releaseId: "release-abc",
-  publishAt: "in two weeks", // Natural language or ISO format
-  resource: { projectId, dataset },
-});
-
-// Publish immediately
-publish_release({
-  releaseId: "release-abc",
-  resource: { projectId, dataset },
-});
+  publishAt: "in two weeks",
+  resource: { projectId, dataset }
+})
 ```
-
-## Common Workflows
-
-### Finding Content by Relationship
-
-```
-1. Check schema to understand document structure
-2. Query referenced entity (e.g., author)
-3. If multiple matches, show all to user
-4. Query primary content with found ID(s)
-5. Verify array vs single reference in schema
-```
-
-### Batch Content Updates
-
-```
-1. Query documents needing updates
-2. For 1-5 documents: use update_document or patch_document
-3. For >5 documents: suggest using releases
-4. Set async=true for multiple documents
-5. Verify results after completion
-```
-
-### Schema-Driven Content Creation
-
-```
-1. User requests content creation
-2. Check schema for correct document type
-3. Verify required fields
-4. Suggest correct type if user's request doesn't match
-5. Create document with proper structure
-```
-
-## Anti-Patterns
-
-**DON'T assume document types:** Always check schema first
-
-**DON'T guess array vs single reference:** Schema reveals correct query syntax
-
-**DON'T forget quotes in projections:** Computed fields must be string literals
-
-**DON'T batch >5 document operations:** Use releases or break into smaller batches
-
-**DON'T apologize for errors:** Try alternative approach immediately
-
-**DON'T query before checking schema:** Wastes time on failed queries
-
-**DON'T mix old and new text search syntax:** Use `match text::query()` for text search
 
 ## Document ID Formats
 
-- Draft: `drafts.{id}`
-- Published: `{id}`
-- Release version: `versions.{releaseId}.{id}`
+| State | Format | Example |
+|-------|--------|---------|
+| Draft | `drafts.{id}` | `drafts.post-123` |
+| Published | `{id}` | `post-123` |
+| Release version | `versions.{releaseId}.{id}` | `versions.release-abc.post-123` |
 
-## Resource Selection
+## Multi-Step Workflow
 
-When multiple resources available (projects/datasets), ALWAYS ask user which to use. Never assume.
+For relationship queries:
+
+1. Check schema for document structure
+2. Query referenced entity first (e.g., find author by name)
+3. Use found ID to query primary content
+4. Verify array vs single reference in schema
+
+```groq
+# Step 1: Find author
+*[_type == "author" && name match "Magnus"]{ _id, name }
+
+# Step 2: Use ID (single reference)
+*[_type == "post" && author._ref == "author-123"]
+
+# Step 2: Use ID (array reference)
+*[_type == "post" && "author-123" in authors[]._ref]
+```
 
 ## Field Path Syntax
 
-Supports:
+```
+title                           # Simple field
+author.name                     # Nested object
+items[_key=="item-1"]          # Array item by key
+items[_key=="item-1"].title    # Nested in array
+```
 
-- Simple fields: `"title"`
-- Nested objects: `"author.name"`
-- Array items by key: `"items[_key==\"item-1\"]"`
-- Nested in arrays: `"items[_key==\"item-1\"].title"`
+## Reference Files
 
-## Advanced Topics
+For deeper coverage:
 
-For deeper coverage of specific areas, see:
-
-**[reference/groq-patterns.md](reference/groq-patterns.md)** - Advanced GROQ queries:
-
-- Complex filtering and operators
-- Performance optimization techniques
-- Aggregations and computations
-- Join patterns and dereferencing strategies
-
-**[reference/schema-design.md](reference/schema-design.md)** - Schema design:
-
-- Document type organization
-- Field validation patterns
-- Reference relationship strategies
-- Localization approaches
-- Performance considerations
-
-**[reference/debugging.md](reference/debugging.md)** - Troubleshooting:
-
-- Common GROQ errors and fixes
-- Schema validation issues
-- Reference problems
-- Performance debugging
-- Tool selection mistakes
-- Step-by-step debugging workflows
-
-## Best Practices
-
-1. **Schema-first approach** - Check schema before content queries
-2. **Action-first response** - Perform actions immediately, don't just suggest
-3. **Verify before modify** - Confirm document exists before updates
-4. **Use releases for coordination** - Stage related content updates together
-5. **Respect limits** - Maximum 5 documents per operation
-6. **Choose right tool** - Use patch for precision, update for AI assistance
-7. **Handle errors gracefully** - Try alternatives immediately
-8. **Natural language times** - "in two weeks" works for scheduling
-9. **Preserve formatting** - Use transform_document for rich text operations
-10. **Progressive refinement** - Query → Verify → Refine → Execute
+- **[reference/groq-patterns.md](reference/groq-patterns.md)** — Advanced GROQ: filtering, joins, aggregations, performance
+- **[reference/schema-design.md](reference/schema-design.md)** — Schema patterns: naming, validation, references, localization
+- **[reference/debugging.md](reference/debugging.md)** — Common errors and step-by-step debugging workflows
